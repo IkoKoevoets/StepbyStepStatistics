@@ -1,0 +1,266 @@
+---
+title: "StepByStepStatitics"
+author: "Iko koevoets"
+date: "14 July 2016"
+output: 
+  pdf_document: 
+    fig_height: 3.5
+    fig_width: 5
+---
+This documents guides people through a (simple to a bit more complex) statistical analysis using R. It includes the script that you will use in R and some guidance in how to interpret the data. Some of my own example datasets are used to illustrate how to use the data.
+
+__Set Working directory__  
+The first step when starting with R is ALWAYS setting your working directory. This is the location where your data is saved. You can do this by hand or you can also use the menu in R studio in the right to browse your folders and select the workingdirectory (click More, select workingdirectory).
+```{r}
+setwd("~/Iko/PhD/Scripts/StepByStepStatistics_examples")
+```
+__Load required packages__  
+R has a basic set of packages which is installed and loaded when it starts up, but a lot of additional and very useful packages can be installed and loaded when you need them. The code below shows how to load the packages required for the code presented in this document. It is possible that you still need to install (some of) these packages when you use these for the first time. Fore example, if you need to install the multcomp package, you can use the code: install.packages("multcomp")
+```{r, message = FALSE, warning = FALSE}
+require(nlme)
+require(multcomp)
+require(plyr)
+require(lme4)
+```
+
+__Load your data__  
+Ofcourse, the next step is to load your data into R (it should be in the folder you just chose as your working directory). Make sure that all factors (categorical variables) are factors and otherwise change them to factors (as shown for Treatment and genotypes). In the same formula you can also arrange the order by putting the levels in the order you would like them to be displayed when you are for example showing a graph. Below I have loaded one of the example datasets. 
+```{r}
+Data_Angle <- read.csv("Data_RootAngle.csv", sep=",")
+Data_Angle$Treatment <- factor(Data_Angle$Treatment, c("Control", "Salt", "Sorbitol"))
+Data_Angle$genotypes <- factor(Data_Angle$genotypes)
+head(Data_Angle)
+```
+NOTE: It is important that your data is in the right format. It should be in a csv file, which is ordered as "long" format. This means you have a column for sample name, a column for treatment, a column for genotype and a column for each trait. See the example.
+
+__Choose the appropriate model__  
+All statistics is based on modeling. The idea is that we try to find a statistical model, which approximates reality as good as possible and can be used to make predictions about reality. The model is a mathematical equation which holds the parameters explaining the variation observed in the data. For statistics, several standardized models are available, which all have their own assumptions. When choosing a model it is important to consider the purpose of the model and whether the underlying assumptions are met. The first step to choosing your model is to consider what kind of data you have:  
+_Is your response variable (trait of interest) continuous (e.g. main root length, lipid concentration)_  
+_Is your response variable (trait of interest) discrete (e.g. number of open stomata, survivalrates)_
+  
+##Continous Data
+When considering continuous data, there are two most commonly used models: linear models and linear mixed models. The biggest difference between these models lies in the fact that linear mixed models includes random factors: these are factors that are not controlled by the researchers, but that are explaining part of the variation in your response variable (trait of interest). For example, this can be in which tray your plant was (when using different trays). A well known example of a random factor is "Block", when using a randomised block design. We use a special type of linear mixed models for timeseries, because time is actually correlated (differences between timepoint 1 and 2 are often smaller then between 1 and 4). Below, linear models, linear mixed models and  timeseries analysis are discussed.
+
+__linear models__  
+Linear models are based on a formula of fixed factors, with a continuous response variable (trait of interest) and one or more explanatory variables (regressors)
+_Linear regression_: ALL explanatory variables are quantitative (eg regression between area and dryweight of plant)
+_ANOVA_: All explanatory variables are qualitative (eg Genotype, treatment etc)
+_ANCOVA_: Combination of qualitative and quantitative
+All types are analysed in a similar way, only for post-hoc comparison and graphs we need to take these differences into account. We use the lm function from the stats package (always loaded). When defining the model, the formula is based on: trait ~ explanatory variable1 * explanatory variable2. Add all variables and possible interactions (except when you have a reason why a certain interaction is not interesting). 
+
+```{r}
+Model <- lm(formula = Angle ~ Treatment * genotypes, data=Data_Angle)
+anova(Model)
+```
+
+In this case, all explanatory variables are significant and we can continue with further analysis. However, sometimes certain variables are not significantly explaining the variation in the trait of interest. It is in that case best to discard these variables from the formula and rerun the model. The idea is to use a model that is as simple as possible, but sufficient. Putting more variables in will always increase the amount of variation explained, but when not significant, it also causes noise. 
+  
+After defining your model, the next step is always to check the model assumptions, see chapter "checking model assumptions".
+
+__linear mixed models__  
+Whereas linear models only consider fixed factors explaining variation, linear mixed models also consider random factors. The variation due to random factors is not controlled by researched, but does influence your outcome. If you have knowledge on these kind of factors influencing your dataset, you can implement them by using a linear mixed model, which corrects for these factors. For example, if you use different trays to grow your plants in, correct for the tray as for example amount of water/soil/light could influence the outcome of your experiment.   
+
+To define a linear mixed model, we use the lme function from the nlme package. We will again use the Data_Angle dataset, but now correct for the plate the plants were growing on. 
+
+NOTE:Although a standard ANOVA is not possible for linear mixed models, we can use the same comment in R to get the desired p-values. What R does for us, is to drop a value of the model and compare it with the full model (so for example compare Angle~Treatment + genotypes with Angle~Treatment*genotypes to get the output for interaction). It is best to define these models yourself and compare them (by using anova(model1, model2)), but for the sake of simplicity, the anova function directly on the full model is enough for this "tutorial".
+
+```{r}
+Model_lme <- lme(fixed=Angle ~ Treatment * genotypes, data=Data_Angle, random = ~1|Plate)
+anova(Model_lme)
+```
+
+In this case, not much has changed in the output (compare both tables) and there are several methods to get more information about how much influence your random factor has on your dataset. In the case of plate, I have tested it several times and it actually does not significantly influence the output. However, for random factors, I would advice including them if you have knowledge about them, because it is a source of variation you like to exclude.   
+Next, check the model assumptions before continuing to further analysis and interpretation.
+
+__A special case of lmm: timeseries__  
+Above, no correlation between different levels of (random) factors is considered, but when analysing a timeseries, this is not correct. In timeseries something called "autocorrelation" exists. This has to do with the fact that output for day 1 and day 2 will be more similar then for day 1 and day 10 (for example in survival on salt stress). To include this, we use a linear mixed model, in which we define the type of correlation (in this case autoregressive process of order 1, the most used type, but if going further with this, read up on other options).
+
+First we load the data.
+```{r}
+Data_timeseries <- read.csv("Data_timeseries.csv")
+head(Data_timeseries)
+```
+
+Next we run the model. My question is in this case whether sucrose effects the response of my plant to salt stress. I am not specifically interested in the effect of the day on this response, because I know the MRL increases with day. I do want to correct for the timeseries and by doing so I compare the timeseries of sucrose with and without NaCl (at least that is the interaction). If you are interested on the effect of time, you can include it both as random factor and as fixed to include the autocorrelation structure and for the main factors also correct for the day.
+```{r}
+Model_ts <- lme(fixed=MRLd ~ Sucrose*NaCl, data=Data_timeseries, 
+                correlation=corAR1(), random = ~1|ID/DAG)
+anova(Model_ts)
+```
+
+As you see, sucrose actually has no main effect, because its effects depends on the level of NaCl, as is reflected in the clear interaction effect of NaCl and sucrose (which makes sense, as sucrose does not affect growth in salt stress and it does without salt). There is a main effect of NaCl, which means that this effect is also apparent without taken sucrose in account (as the effect of NaCl is also much stronger then sucrose and is apparent with and without sucrose).
+Next, check model assumptions before continuing with analysis and interpretation
+
+##Check model Assumptions
+Before further analysing your data and drawing conclusions, make sure you check the model assumptions. Basic linear models have several assumptions, with the most important being: the samples are independent (no repeated samples, timeseries etc. If you do have dependence, go to linear mixed models), the residuals (difference between observed value and value predicted by the model) have a linear pattern, a constant variance and the residuals are normally distributed. 
+
+The last two assumptions should be checked after defining the model and before continuing further analysis, if the assumptions are not met, the output is not reliable and we should either transform the data (e.g. log transformation) so the assumptions are met or use a different model. The simplest way to check the assumptions is to use the plot function on your model. The plot function outputs 4 graphs.
+```{r, eval=FALSE}
+plot(Model)
+```
+__Graph 1: Residuals vs Fitted__  
+Graph 1 shows the residuals of your model vs the fitted data. The fitted values are the values predicted based on the model. As residuals=predicted-observed, a deviation from the 0 line means the value has either been predicted too low (if above) or too high (if below). If the data point is on the 0 line, the real residuals are the same as the predicted (fitted). This plot is very useful, because it gives you immediate insight in whether or not you have a linear pattern and your residual variance is constant. The amount of points above and below the line (and their values) should be similar and this should also be similar for each fitted values. On first sight, no obvious pattern in the datapoints should be visisble. For this dataset we see no pattern and approximately equal variances, so this assumption has been met. Three datapoints are pointed out (3,212,171), because they have a very high (and not comparable with other datapoints) residual. These points could be outliers, which wil be shown in next plots.    
+```{r, echo = FALSE}
+plot(Model, 1)
+```
+  
+__Graph 2: QQplot__  
+Graph 2 shows the QQplot, the most used plot to determine whether the residuals follow a normal distribution, the second assumption. This plot plots the standardized residuals as a function of the theoretical quantiles. A quantile is the fraction of points below the given value. If the dataset follows a normal distribution, its quantiles (standardized residuals) should be similar to the theoretical quantiles (based on a normal distribution). This would thus follow a straight (45 degrees) line. As we can see our datapoints roughly follow this line (indicated by the dotted line), although there are some deviations at the right tail (again the same outliers are indicated). Based on this QQplot we can say that the assumption of the normal distribution is met and we can continue with the current model. If your data clearly deviates from the line (especially in the middle), then the model might not be suited or you should use some transformation (e.g log transformation), to make sure your data is following a normal distribution. Ask for help if stuck.  
+  
+```{r, echo = FALSE}
+plot(Model, 2)
+```
+  
+__Graph 3: Scale-location__  
+Graph 3 shows the squareroot of the residuals vs the fitted data. It is and addition to the first plot and helps you to have a better view on whether your variance is similar. The red line is the average of the datapoint for each fitted value. If this line is approximately linear your data has equal variance, as can be observed in this plot. If there is a strong relation between fitted values and the average, this means variance changes depending on the range of predictors (for example more variance in 1 genotype then the other).    
+  
+```{r, echo = FALSE}
+plot(Model, 3)
+```
+  
+__Graph 4: Residuals vs Leverage__  
+Graph 4 shows the residuals of your model vs the leverage. Leverage is  value which represents how much influence the datapoint has on the model. If the leverage is high, this means that the point has a very strong influence and above a certain threshold we can consider these point as outliers. Again, 3 datapoints are regarded as outliers (the same as shown earlier). At this point, it is important to check where this could come from: maybe you made a typo in the data or maybe you can explain this because this plant has been damaged during transfer. If you have no good reason to discard the datapoint, you should not discard it. However, you should keep it in mind for further analysis. 
+
+```{r, echo = FALSE}
+plot(Model, 5)
+```
+
+Visual checks of your data based on the above graphs and on plotting the data (use plot function or look further into the ggplot2 package if you like using R) are necessary before drawing any conclusions based on the model. It can be quite tricky to interpret these graphs and especially in the beginning it can be good to either consult other or to look for examples of these graphs on the internet. There are loads of (extreme) examples which show when assumptions are not met. If you doubt whether the used model is suited for analysis based on the presented graphs, make sure you first find out what causes the deviation: did you choose the wrong model, do you have some outliers strongly influencing your model or should you transform your data so it follows the right distribution? When these things happen, it is surely not a problem, but you do need to deal with it.
+
+__Checking assumptions of mixed models__  
+Above function only works on basic linear models. Other models have some altered assumptions, but some checks should still be carried out. For a linear mixed model, checks for equal of variance by using a residuals plot and checks for normallity by using a qqplot can be carried out:
+  
+```{r}
+plot(Model_lme)
+qqnorm(Model_lme)
+```
+
+\pagebreak
+
+##Discrete data
+Discrete data is data which has a limited number of possible values. This characteristics cuases discrete data to not follow a normal distribution. Discrete data are modelled with what we call "Generalized linear models (GLM)" in which you define the distribution your data follows. The most used distributions are the binomial distribution (for categorical traits, e.g. dead or alive) and Poisson distribution (for count data). How to analyse them in R is described below.
+
+__Binomial distribution__  
+This distribition is suited for data which can take 2 values (0-1), for example dead or survival, open or closed etc. This data is often displayed as percentual data in graphs, but should still be analysed as  binomial data, as it will not follow a normal distribution (you can check by using a QQplot, which will very obviously show a different pattern, see below). With more then two categories (e.g., flower=not visible, flower=closed, flower=open), you can also use the binomial distribution, but you always define the model as your event of interest (e.g. open flowers) vs other events (not visible or closed) and repeat this depending on the question you want to answer. 
+
+In this case we take the example where we want to compare survival of col-0 with 4 mutant lines (A to D) in salt stressed conditions in the soil (as control treatment all survived, I took it out for the sake of simplicity). Survival is noted as 0 or 1. Let's load the dataset
+```{r, warning = FALSE}
+Data_survival <- read.csv("Data_survival.csv")
+head(Data_survival)
+```
+
+To use this data, we need to summarise it by the amount fo survived and amount of death per genotype/treatment. R has a useful function called ddply (in combination with summarize, from the package plyr), in which you can apply a function based on a certain grouping. You can also use it to calculate descriptive statistics such as the mean or the SE, especially useful if making graphs in R.
+```{r}
+Data_summary<- ddply(Data_survival, c("Genotype", "Treatment"), summarise,
+                      N= sum(!is.na(Survival)),
+                      SV = mean(Survival, na.rm = TRUE),
+                      se_SV = sd(Survival, na.rm = TRUE) / sqrt(N),
+                      SV_YES = sum(Survival == 1),
+                      SV_NO = sum(Survival == 0))
+head(Data_summary)
+```
+
+We can now run the model. On the left handside of the model, we put in the death and alive per treatment & genotype. For the anova, it is important to define the test we want to use to determine the P-value (which distribution), because it is not anymore a standard anova. We define the Chi-square test, as this is the standard test for a binomial distribution
+```{r, warning=FALSE}
+Model_glm <- glm(cbind(SV_YES, SV_NO)~Treatment*Genotype, data=Data_summary, family=binomial)
+anova(Model_glm, test="Chisq")
+```
+
+As the interaction is not significant (all genotypes respond similarly to the treatment, which is logical as no plants die under control conditions), we will drop this term from the model:
+```{r, warning=FALSE}
+Model_glm2 <- glm(cbind(SV_YES, SV_NO)~Treatment+Genotype, data=Data_summary, family=binomial)
+anova(Model_glm2,test="Chisq")
+```
+
+As the binomial distribution has only some assumptions to how your data is collected, such as the fact that the data is independent, there are now checks we can do to see whether the assumptions are met. Most important is to only use a binomial distribution when you really have a 0-1 situation and your data is clearly discrete. See post-hoc tests for further analysis.
+\pagebreak
+
+__Poisson distribution__  
+This distribution is suited for count data, for example the number of lateral roots. Note that often binomial data can also be noted as count data (number of surviving plant per plate, number of open stomata per leaf) and it depends on the way you designed you experiment what works best. In the end, the output will be the same, but the distribution and power of your experiment will be different. Read more about it and/or ask for help if you don't know what is best. Also check the distribution.
+
+The dataset we use here is a dataset of the number of lateral roots (determined with smartroot) of 4 diffferent genotypes (Col-0, A, B, C) in salt and control conditions.
+```{r}
+Data_laterals <- read.csv("Data_LR.csv")
+head(Data_laterals)
+```
+
+To show the problem with count data, I have plotted the lateral root data on a QQplot. As you see you get very categorized data, which makes it non-normal.
+```{r}
+qqnorm(Data_laterals$nLRd)
+```
+
+Therefore, we run a poisson model:
+```{r}
+Model_poisson <- glm(nLRd~Treatment*genotypes, data=Data_laterals, family=poisson)
+anova(Model_poisson,test="Chisq")
+```
+
+The interaction and the main effects are significant, which means we can now continue for further analysis.
+
+__Generalized linear mixed models: random effects with discrete traits__  
+As for the continuous data, also discrete data can account for random effects. In that case, we can use a Generalized linear mixed model (GLMM). The glmer function in R covers this test. It works similar to 
+
+```{r}
+Model_poisson_mixed <- glmer(nLRd~Treatment*genotypes + (1|Plate), data=Data_laterals, family=poisson)
+anova(Model_poisson_mixed,test="F-test")
+```
+
+as this model does not directly give p-values, you can do an F-test on the F value presented in the table to calculate the p-value. In the formula you need to fill in the q, this is the F-value from the previous test, the degrees of freedom 1 (df1) and 2 (df2), which are represented by the df in the table (1, this is the amount of levels -1) and the number of samples/individuals - df1 (2). 
+```{r}
+#Treatment effect
+pf(q=60.8424, df1=2, df2=222, lower.tail=FALSE)
+#Genotype effect
+pf(q=5.7722, df1=3, df2=221, lower.tail=FALSE)
+#interaction effect
+pf(q=2.4253, df1=6, df2=218, lower.tail=FALSE)
+```
+
+As you can see the values are roughly comparable to the ones in the linear model, as plate does not influence the outcomes much (as it should be).
+
+##Further analysis: post-hoc comparisons
+After defining the model and checking the model assumptions, you should allready know whether one of your fixed factors has a significant effect on your trait. If your fixed factor is continuous, a significant interaction probably means that you have a significant correlation. If your fixed factor is discrete and has only two levels, the results are also clear: your two levels are significantly different. However, if you have more levels or if there is an interaction, you ofcourse want to know which levels are significantly differing from eachother. For this purpose we can use post-hoc comparisons. We will use the Data_Angle as an example for these post-hoc comparisons, but you can do this with every model which has been discussed above. Before choosing how to analyse the data, always think about which comparisons you want to make. Because with every extra comparison you want to make, you loose some power of your test (as there is a correction for the number of comparisons).
+
+NOTE: when you have significant interactions, it does NOT make sense to test the main effects individually, as there is no "general" conclusion to be drawn about these levels, because they depend on the level of the other factor. SO only test interaction in that case! the post-hoc test will also give a warning in that case
+
+__preperation for significant interactions__  
+To do a post-hoc test on an interaction, you should redefine your model, in which you put the interactionfactor as one term (the post-hoc test do not accept an interaction term). To redefine it, use the code below, it generates a new column with the interaction
+
+```{r}
+int <- interaction(Data_Angle$genotypes,Data_Angle$Treatment)
+Data_Angle <- cbind(Data_Angle, int)
+Data_Angle$int <- droplevels(Data_Angle$int)
+head(Data_Angle)
+```
+
+And redefine the model (nothing should change in the output, because the terms are still the same):
+```{r}
+Model <- lm(Angle~int, Data_Angle)
+anova(Model)
+```
+
+__Tukey post-hoc: Comparing all levels with eachother__  
+For the post-hoc comparisons we use the glht function from the multcomp package. The most done comparison is a tukey post-hoc test. However, if there is an interaction effect, this could lead to a lot of comparisons. This is not only very annoying because it prints an enormous list, but also because with every comparison, the probability matrix is adjusted, because the more comparisons you make the bigger the chance for false positives. This therefore lowers the chance of a significant result. Often, you are actually not interested in all comparisons, solutions for that are found in a dunnett post-hoc.
+```{r, warning=FALSE}
+summary(glht(Model, linfct = mcp(int = "Tukey")))
+```
+
+__Dunnet post-hoc: Comparing all levels with one of the levels__  
+For the post-hoc comparisons we use the glht function from the multcomp package. The dunnett post-hoc test is specifically suited for comparing one "base level" with the rest. It normally takes the base level based on the alphabet, but you can redefine it yourself with the code below (make sure to rerun the model in that case). I often use this kind of test when I want to compare col-0 with the other mutants. Most of the times, I am not interested in comparing the mutants with eachother.
+```{r}
+Data_Angle$int <- relevel(Data_Angle$int, "Col-0.Control")
+Model <- lm(Angle~int, Data_Angle)
+summary(glht(Model, linfct = mcp(int = "Dunnett")))
+```
+
+__post-hoc on demand: defining contrasts__  
+For the post-hoc comparisons we use the glht function from the multcomp package. Although the Dunnett test works nicely, it does have a limit to one base level. Often you might only want to compare within treatments (as you know that salt always affects Angle for example), you can then specifically define which comparisons you are interested in as shown below. This is a bit more work, but does give you the most freedom. In this case we compare A and B in different treatments, just as an example.
+```{r}
+contrasts <- c("A.Control - B.Control = 0",
+               "A.Salt - B.Salt = 0",
+               "A.Sorbitol - B.Sorbitol = 0"
+)
+summary(glht(Model, linfct = mcp(int = contrasts)))
+```
+
+##Final notes
+I have written this file to help others with their statistics in R. It is not meant to be a comprehensive statistics textbook or a perfect file. See it as a tutorial you can use to learn more and start reading. Make sure you always check whether your outcomes are logical and check with others if you are doubting about a certain test. Good luck and enjoy analysing!
